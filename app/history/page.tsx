@@ -10,7 +10,10 @@ import {
   Clock,
   MapPin,
   QrCode,
+  ScanLine,
   Search,
+  Ticket,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -18,33 +21,54 @@ import { AppHeader, ProfileAvatar } from "@/components/app-header";
 import { BottomNav } from "@/components/bottom-nav";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
+import { bookedCount, remainingCount, scannedCount, useEvents } from "@/lib/events";
 import { gateLabel, useScannerMember } from "@/lib/scanner-member";
+import { useTicketEntries, type TicketEntry } from "@/lib/ticket-entries";
 
 type Status = "valid" | "used" | "invalid";
 
 type ScanRecord = {
   id: string;
   ticketType: string;
-  booking: string;
-  name: string;
+  eventName: string;
+  quantity: number;
+  gate: string;
   status: Status;
   time: string;
+  day: string;
 };
 
-const HISTORY: ScanRecord[] = [
-  { id: "JT-0001248", ticketType: "General Ticket", booking: "BK-7852", name: "Ramesh Tudu", status: "valid", time: "07:42 PM" },
-  { id: "JT-0001247", ticketType: "VIP Ticket", booking: "BK-7851", name: "Anita Murmu", status: "used", time: "07:41 PM" },
-  { id: "JT-0001246", ticketType: "General Ticket", booking: "BK-7850", name: "Sagen Tudu", status: "valid", time: "07:40 PM" },
-  { id: "JT-0001245", ticketType: "Balcony Ticket", booking: "BK-7849", name: "--", status: "invalid", time: "07:38 PM" },
-  { id: "JT-0001244", ticketType: "General Ticket", booking: "BK-7848", name: "Babul Hansda", status: "valid", time: "07:37 PM" },
-  { id: "JT-0001243", ticketType: "VIP Ticket", booking: "BK-7847", name: "Sunita Kisku", status: "used", time: "07:35 PM" },
-  { id: "JT-0001242", ticketType: "General Ticket", booking: "BK-7846", name: "Lembaram Marandi", status: "valid", time: "07:33 PM" },
-  { id: "JT-0001241", ticketType: "General Ticket", booking: "BK-7845", name: "Mangal Soren", status: "valid", time: "07:31 PM" },
-  { id: "JT-0001240", ticketType: "Balcony Ticket", booking: "BK-7844", name: "Payal Oraon", status: "valid", time: "07:29 PM" },
-  { id: "JT-0001239", ticketType: "VIP Ticket", booking: "BK-7843", name: "Dilip Hembram", status: "used", time: "07:27 PM" },
-  { id: "JT-0001238", ticketType: "General Ticket", booking: "BK-7842", name: "--", status: "invalid", time: "07:25 PM" },
-  { id: "JT-0001237", ticketType: "General Ticket", booking: "BK-7841", name: "Suni Murmu", status: "valid", time: "07:22 PM" },
-];
+function toRecord(
+  entry: TicketEntry,
+  eventNames: Map<string, string>,
+): ScanRecord {
+  const value = entry.status.toLowerCase();
+  const status: Status = ["invalid", "rejected", "failed"].includes(value)
+    ? "invalid"
+    : ["used", "duplicate"].includes(value)
+      ? "used"
+      : "valid";
+
+  return {
+    id: entry.ticketNumber || "—",
+    ticketType: entry.ticketTypeName || "General",
+    eventName:
+      (entry.eventId ? eventNames.get(entry.eventId) : undefined) ||
+      entry.eventName,
+    quantity: entry.quantity,
+    gate: entry.gate,
+    status,
+    time: entry.time,
+    day: entry.scannedAt?.slice(0, 10) || entry.date,
+  };
+}
+
+function todayKey() {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
 
 const TABS: { key: Status | "all"; label: string }[] = [
   { key: "all", label: "All" },
@@ -80,65 +104,88 @@ const STATUS_META: Record<
 
 const STAT_META: {
   label: string;
-  count: "total" | Status;
+  value: "booked" | "scanned" | "remaining";
   Icon: LucideIcon;
   iconClassName: string;
   className: string;
 }[] = [
   {
-    label: "Total Scans",
-    count: "total",
-    Icon: Clock,
+    label: "BOOKED",
+    value: "booked",
+    Icon: Users,
     iconClassName: "text-blue-600",
-    className: "border-blue-100 bg-blue-50/70",
+    className: "border-t-blue-600 border-slate-200/80 bg-blue-50/70",
   },
   {
-    label: "Valid Entries",
-    count: "valid",
-    Icon: CircleCheck,
+    label: "SCANNED",
+    value: "scanned",
+    Icon: ScanLine,
     iconClassName: "text-emerald-600",
-    className: "border-emerald-100 bg-emerald-50/70",
+    className: "border-t-emerald-600 border-slate-200/80 bg-emerald-50/70",
   },
   {
-    label: "Already Used",
-    count: "used",
-    Icon: CircleX,
-    iconClassName: "text-rose-500",
-    className: "border-rose-100 bg-rose-50/70",
-  },
-  {
-    label: "Invalid Tickets",
-    count: "invalid",
-    Icon: CircleAlert,
-    iconClassName: "text-purple-500",
-    className: "border-purple-100 bg-purple-50/70",
+    label: "REMAINING",
+    value: "remaining",
+    Icon: Ticket,
+    iconClassName: "text-amber-600",
+    className: "border-t-amber-600 border-slate-200/80 bg-amber-50/70",
   },
 ];
 
 export default function HistoryPage() {
   const [tab, setTab] = useState<Status | "all">("all");
   const { member } = useScannerMember();
+  const { entries, loading } = useTicketEntries();
+  const { events } = useEvents();
   const [query, setQuery] = useState("");
-  const [date, setDate] = useState("2026-09-24");
+  const [date, setDate] = useState(todayKey());
 
-  const stats = useMemo(() => {
-    const counts: Record<Status, number> = { valid: 0, used: 0, invalid: 0 };
-    for (const item of HISTORY) counts[item.status] += 1;
-    return { ...counts, total: HISTORY.length };
-  }, []);
+  const eventNames = useMemo(
+    () => new Map(events.map((event) => [event.id, event.storyName || event.title])),
+    [events],
+  );
+
+  const activeTitle =
+    events.find((event) => event.status === "live")?.storyName ??
+    events.find((event) => event.status === "live")?.title ??
+    events.find((event) => event.status === "upcoming")?.storyName ??
+    events.find((event) => event.status === "upcoming")?.title ??
+    "Scan History";
+
+  const records = useMemo(
+    () => entries.map((entry) => toRecord(entry, eventNames)),
+    [entries, eventNames],
+  );
+
+  const dayRecords = useMemo(
+    () => records.filter((item) => item.day === date),
+    [records, date],
+  );
+
+  const totals = useMemo(() => {
+    return events.reduce(
+      (acc, event) => ({
+        booked: acc.booked + bookedCount(event),
+        scanned: acc.scanned + scannedCount(event),
+        remaining: acc.remaining + remainingCount(event),
+      }),
+      { booked: 0, scanned: 0, remaining: 0 },
+    );
+  }, [events]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return HISTORY.filter((item) => {
+    return records.filter((item) => {
+      const matchesDay = item.day === date;
       const matchesTab = tab === "all" || item.status === tab;
       const matchesQuery =
         q.length === 0 ||
         item.id.toLowerCase().includes(q) ||
-        item.name.toLowerCase().includes(q) ||
-        item.booking.toLowerCase().includes(q);
-      return matchesTab && matchesQuery;
+        item.eventName.toLowerCase().includes(q) ||
+        item.ticketType.toLowerCase().includes(q);
+      return matchesDay && matchesTab && matchesQuery;
     });
-  }, [tab, query]);
+  }, [records, tab, query, date]);
 
   const formattedDate = formatDate(date);
 
@@ -151,7 +198,7 @@ export default function HistoryPage() {
       <AppHeader>
         <div className="text-right">
           <p className="text-[11px] font-semibold text-indigo-100">
-            Santali Night Jatra
+            {activeTitle}
           </p>
           <p className="flex items-center justify-end gap-1 text-[10px] font-medium text-amber-400">
             <MapPin className="h-2.5 w-2.5" /> {gateLabel(member)}
@@ -192,11 +239,11 @@ export default function HistoryPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-1.5">
-          {STAT_META.map(({ label, count, Icon, iconClassName, className }) => (
+        <div className="grid grid-cols-3 gap-1.5">
+          {STAT_META.map(({ label, value, Icon, iconClassName, className }) => (
             <div
               key={label}
-              className={`rounded-xl border p-2.5 text-center ${className}`}
+              className={`rounded-xl border border-slate-200/80 border-t-4 p-2.5 text-center ${className}`}
             >
               <div className={`mb-0.5 ${iconClassName}`}>
                 <Icon className="mx-auto h-3 w-3" />
@@ -205,7 +252,7 @@ export default function HistoryPage() {
                 {label}
               </span>
               <p className="mt-0.5 text-sm font-bold text-slate-800">
-                {count === "total" ? stats.total : stats[count]}
+                {totals[value].toLocaleString("en-IN")}
               </p>
             </div>
           ))}
@@ -247,7 +294,16 @@ export default function HistoryPage() {
         </div>
 
         {/* List */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-16 animate-pulse rounded-xl bg-slate-200"
+              />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
             <QrCode className="h-6 w-6 text-slate-300" />
             <p className="text-xs font-semibold text-slate-600">
@@ -278,10 +334,11 @@ export default function HistoryPage() {
                         {item.id}
                       </h3>
                       <p className="text-[11px] text-slate-500">
-                        {item.ticketType} &bull; Booking: {item.booking}
+                        {item.eventName || "—"}
                       </p>
                       <p className="mt-0.5 text-[11px] font-medium text-slate-700">
-                        Name: {item.name}
+                        {item.ticketType} &bull; Qty {item.quantity}
+                        {item.gate ? ` • ${item.gate}` : ""}
                       </p>
                     </div>
                   </div>

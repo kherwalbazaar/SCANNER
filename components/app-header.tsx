@@ -1,24 +1,24 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { QrCode } from "lucide-react";
 
 type AppHeaderProps = {
   children?: ReactNode;
   className?: string;
 };
 
-export function BrandMark({ iconClassName }: { iconClassName?: string }) {
+export function BrandMark() {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="rounded-xl border border-indigo-700 bg-indigo-900 p-2">
-        <QrCode
-          className={iconClassName ?? "h-5 w-5 text-indigo-300"}
-          strokeWidth={2}
-        />
-      </div>
+      <Image
+        src="/apple.icon.png"
+        alt="Jatra Ticket Scanner"
+        width={40}
+        height={40}
+        className="h-10 w-10 rounded-xl object-cover shadow-xs"
+      />
       <div>
         <h1 className="text-sm font-bold leading-tight tracking-wide">
-          JATRA TICKET
+          JATRA BAZAAR
         </h1>
         <p className="text-[10px] font-semibold tracking-wider text-indigo-300">
           SCANNER

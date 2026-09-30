@@ -1,22 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { Clock, House, User } from "lucide-react";
+import { Clock, House, Ticket, User } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-export type NavKey = "home" | "history" | "profile";
+export type NavKey = "home" | "events" | "history" | "profile";
 
 const ITEMS: { key: NavKey; href: string; label: string; Icon: typeof House }[] =
   [
     { key: "home", href: "/", label: "Home", Icon: House },
+    { key: "events", href: "/events", label: "Events", Icon: Ticket },
     { key: "history", href: "/history", label: "History", Icon: Clock },
     { key: "profile", href: "/profile", label: "Profile", Icon: User },
   ];
 
 export function BottomNav({ active }: { active: NavKey }) {
   return (
-    <nav className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between border-t border-slate-200 bg-white px-8 py-2">
+    <nav className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
       {ITEMS.map(({ key, href, label, Icon }) => {
         const isActive = active === key;
 

@@ -18,8 +18,8 @@ export const metadata: Metadata = {
     template: "%s · SCANNER",
   },
   description:
-    "Jatra ticket gate scanner — verify QR tickets and record audience entries.",
-  keywords: ["scanner", "jatra", "ticket", "gate", "qr", "entry"],
+    "Jatra ticket gate scanner — verify QR tickets and record audience entries for Jatra events. Fast, reliable ticket scanning for event organizers.",
+  keywords: ["scanner", "jatra", "ticket", "gate", "qr", "entry", "event", "bazaar"],
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -37,6 +37,17 @@ export const metadata: Metadata = {
     telephone: false,
     email: false,
     address: false,
+  },
+  openGraph: {
+    type: "website",
+    siteName: "SCANNER",
+    title: "SCANNER",
+    description: "Jatra ticket gate scanner — verify QR tickets and record audience entries.",
+  },
+  twitter: {
+    card: "summary",
+    title: "SCANNER",
+    description: "Jatra ticket gate scanner — verify QR tickets and record audience entries.",
   },
 };
 
