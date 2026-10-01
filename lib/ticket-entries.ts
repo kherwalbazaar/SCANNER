@@ -108,21 +108,96 @@ async function findByTicketNumber(
   return snapshot;
 }
 
+/**
+ * The customer app (JATRA BAZAAR) and the admin app (JATRA BAZAAR ADMIN)
+ * emit QR payloads in a few historical shapes:
+ *   - {"id":"NJ26-00001","seat":"A-4","event":"..."}   (current)
+ *   - {"ID":"NJ26-00001","SEAT":"A-4","EVENT":"..."}   (same, upper keys)
+ *   - NJ26-00001-4                                     (per-seat serial)
+ *   - NJ26-00001-RAMESH-TUDU                           (legacy ticket + name)
+ *   - NJ26-00001                                       (plain booking id)
+ * This pulls the ticket id out of any of them.
+ */
+const QR_ID_KEYS = [
+  "id",
+  "ticketnumber",
+  "ticketno",
+  "code",
+  "bookingid",
+  "serial",
+];
+
+export function extractTicketCode(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  if (trimmed.includes("{") || trimmed.toLowerCase().includes("%7b")) {
+    let payload = trimmed;
+    if (!payload.trimStart().startsWith("{")) {
+      try {
+        payload = decodeURIComponent(payload);
+      } catch {
+        /* keep the original string */
+      }
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      const record =
+        parsed && typeof parsed === "object"
+          ? (parsed as Record<string, unknown>)
+          : null;
+      if (record) {
+        const key = Object.keys(record).find((name) =>
+          QR_ID_KEYS.includes(name.toLowerCase()),
+        );
+        const value = key ? String(record[key] ?? "").trim() : "";
+        if (value) return value.toUpperCase();
+      }
+    } catch {
+      /* not JSON — treat it as a plain code */
+    }
+  }
+
+  return trimmed.toUpperCase();
+}
+
+/**
+ * Booking ids are `NJ26-00001`, but QRs may append segments
+ * (`-4` seat serial, `-RAMESH-TUDU` holder name). Try the code as-is first,
+ * then progressively drop trailing segments so a per-seat QR still resolves
+ * to its booking — mirroring JATRA BAZAAR ADMIN's `findBookingByTicketNumber`.
+ */
+function lookupCandidates(code: string): string[] {
+  const candidates: string[] = [code];
+  let candidate = code;
+
+  for (let i = 0; i < 3; i++) {
+    const cut = candidate.lastIndexOf("-");
+    if (cut <= 0) break;
+    candidate = candidate.slice(0, cut);
+    if (!candidates.includes(candidate)) candidates.push(candidate);
+  }
+
+  return candidates;
+}
+
 export async function verifyTicketNumber(raw: string): Promise<VerifyResult> {
-  const code = raw.trim();
-  const upper = code.toUpperCase();
+  const code = extractTicketCode(raw);
   if (!code) return { ok: false, reason: "not-found" };
 
   try {
-    let snapshot = await findByTicketNumber("bookings", upper);
-    if (snapshot.empty && upper !== code) {
-      snapshot = await findByTicketNumber("bookings", code);
-    }
-    if (snapshot.empty && upper !== code) {
-      snapshot = await findByTicketNumber("bookings", code.toUpperCase());
+    let bookingDoc: Awaited<ReturnType<typeof findByTicketNumber>>["docs"][number] | null =
+      null;
+
+    for (const candidate of lookupCandidates(code)) {
+      const snapshot = await findByTicketNumber("bookings", candidate);
+      if (!snapshot.empty) {
+        bookingDoc = snapshot.docs[0];
+        break;
+      }
     }
 
-    const bookingDoc = snapshot.docs[0];
     if (!bookingDoc) return { ok: false, reason: "not-found" };
 
     const data = bookingDoc.data() as Record<string, unknown>;
@@ -131,7 +206,7 @@ export async function verifyTicketNumber(raw: string): Promise<VerifyResult> {
       return { ok: false, reason: "cancelled" };
     }
 
-    const ticketNumber = str(data, "ticketNumber") || upper;
+    const ticketNumber = str(data, "ticketNumber") || code;
     const entries = await findByTicketNumber("ticketEntries", ticketNumber);
     if (!entries.empty) return { ok: false, reason: "already-used" };
 

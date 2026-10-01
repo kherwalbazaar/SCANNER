@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useEvents } from "@/lib/events";
 import {
+  extractTicketCode,
   recordEntry,
   verifyTicketNumber,
   type VerifyFailure,
@@ -64,7 +65,7 @@ export function ManualEntryModal({
 
     let active = true;
     setStage("input");
-    setCode(initialCode);
+    setCode(extractTicketCode(initialCode) || initialCode);
     setTicket(null);
     setBusy(true);
 
@@ -311,7 +312,7 @@ export function ManualEntryModal({
               <p className="mt-0.5 text-[11px] text-slate-500">{failure.hint}</p>
               {code ? (
                 <p className="mt-1 text-[10px] font-semibold text-slate-400 uppercase">
-                  {code}
+                  {extractTicketCode(code) || code}
                 </p>
               ) : null}
             </div>
