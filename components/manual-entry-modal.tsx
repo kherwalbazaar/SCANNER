@@ -219,6 +219,7 @@ export function ManualEntryModal({
 
             <dl className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px]">
               <Row label="Ticket ID" value={ticket.ticketNumber} />
+              {ticket.seat && <Row label="Seat" value={ticket.seat} />}
               <Row
                 label="Event"
                 value={

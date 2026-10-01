@@ -5,6 +5,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -17,6 +18,8 @@ import { firestore } from "./firebase";
 export type TicketEntry = {
   id: string;
   ticketNumber: string;
+  baseTicketNumber?: string;
+  seat?: string;
   eventId: string;
   eventName: string;
   ticketTypeName: string;
@@ -34,12 +37,17 @@ export type TicketEntry = {
 export type VerifiedTicket = {
   bookingId: string;
   ticketNumber: string;
+  baseTicketNumber?: string;
+  seat?: string;
+  seatIndex?: number;
+  totalSeats?: number;
   eventId: string;
   eventName: string;
   ticketTypeName: string;
   quantity: number;
   amount: number;
   block: string;
+  customerName?: string;
 };
 
 export type VerifyFailure = "not-found" | "cancelled" | "already-used";
@@ -80,6 +88,8 @@ function toEntry(id: string, data: Record<string, unknown>): TicketEntry {
   return {
     id,
     ticketNumber: str(data, "ticketNumber"),
+    baseTicketNumber: str(data, "baseTicketNumber") || undefined,
+    seat: str(data, "seat") || undefined,
     eventId: str(data, "eventId"),
     eventName: str(data, "eventName"),
     ticketTypeName: str(data, "ticketTypeName") || "General",
@@ -108,65 +118,90 @@ async function findByTicketNumber(
   return snapshot;
 }
 
-/**
- * The customer app (JATRA BAZAAR) and the admin app (JATRA BAZAAR ADMIN)
- * emit QR payloads in a few historical shapes:
- *   - {"id":"NJ26-00001","seat":"A-4","event":"..."}   (current)
- *   - {"ID":"NJ26-00001","SEAT":"A-4","EVENT":"..."}   (same, upper keys)
- *   - NJ26-00001-4                                     (per-seat serial)
- *   - NJ26-00001-RAMESH-TUDU                           (legacy ticket + name)
- *   - NJ26-00001                                       (plain booking id)
- * This pulls the ticket id out of any of them.
- */
-const QR_ID_KEYS = [
-  "id",
-  "ticketnumber",
-  "ticketno",
-  "code",
-  "bookingid",
-  "serial",
-];
+export type DecodedTicketPayload = {
+  ticketNumber: string;
+  bookingId: string;
+  seat?: string;
+  seatIndex?: number;
+  seatCount?: number;
+};
 
-export function extractTicketCode(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
+export function extractTicketPayload(raw: string): DecodedTicketPayload {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) {
+    return { ticketNumber: "", bookingId: "" };
+  }
 
-  if (trimmed.includes("{") || trimmed.toLowerCase().includes("%7b")) {
-    let payload = trimmed;
-    if (!payload.trimStart().startsWith("{")) {
+  let jsonStr = trimmed;
+  if (jsonStr.includes("{") || jsonStr.toLowerCase().includes("%7b")) {
+    if (!jsonStr.trimStart().startsWith("{")) {
       try {
-        payload = decodeURIComponent(payload);
+        jsonStr = decodeURIComponent(jsonStr);
       } catch {
-        /* keep the original string */
+        /* keep original */
       }
     }
 
     try {
-      const parsed: unknown = JSON.parse(payload);
-      const record =
-        parsed && typeof parsed === "object"
-          ? (parsed as Record<string, unknown>)
-          : null;
-      if (record) {
-        const key = Object.keys(record).find((name) =>
-          QR_ID_KEYS.includes(name.toLowerCase()),
-        );
-        const value = key ? String(record[key] ?? "").trim() : "";
-        if (value) return value.toUpperCase();
+      const parsed = JSON.parse(jsonStr);
+      if (parsed && typeof parsed === "object") {
+        const record = parsed as Record<string, unknown>;
+        const findKey = (candidates: string[]) => {
+          const k = Object.keys(record).find((name) =>
+            candidates.includes(name.toLowerCase()),
+          );
+          return k ? String(record[k] ?? "").trim() : "";
+        };
+
+        const id = findKey(["id", "ticketnumber", "ticketno", "code", "serial"]);
+        const bookingId = findKey([
+          "bookingid",
+          "basebookingid",
+          "baseticketnumber",
+        ]);
+        const seat = findKey(["seat", "seatnumber", "seatname"]);
+        const seatIndexVal = record["seatIndex"] ?? record["seatindex"];
+        const seatCountVal =
+          record["seatCount"] ?? record["seatcount"] ?? record["quantity"];
+
+        const resolvedTicketNumber = (id || bookingId || "").toUpperCase();
+        const resolvedBookingId = (bookingId || id || "").toUpperCase();
+        const seatIndex = Number.isFinite(Number(seatIndexVal))
+          ? Number(seatIndexVal)
+          : undefined;
+        const seatCount = Number.isFinite(Number(seatCountVal))
+          ? Number(seatCountVal)
+          : undefined;
+
+        return {
+          ticketNumber: resolvedTicketNumber,
+          bookingId: resolvedBookingId,
+          seat: seat || undefined,
+          seatIndex,
+          seatCount,
+        };
       }
     } catch {
-      /* not JSON — treat it as a plain code */
+      /* not JSON — treat as plain code */
     }
   }
 
-  return trimmed.toUpperCase();
+  const upper = trimmed.toUpperCase();
+  return {
+    ticketNumber: upper,
+    bookingId: upper,
+  };
+}
+
+export function extractTicketCode(raw: string): string {
+  return extractTicketPayload(raw).ticketNumber;
 }
 
 /**
  * Booking ids are `NJ26-00001`, but QRs may append segments
  * (`-4` seat serial, `-RAMESH-TUDU` holder name). Try the code as-is first,
  * then progressively drop trailing segments so a per-seat QR still resolves
- * to its booking — mirroring JATRA BAZAAR ADMIN's `findBookingByTicketNumber`.
+ * to its booking.
  */
 function lookupCandidates(code: string): string[] {
   const candidates: string[] = [code];
@@ -183,18 +218,36 @@ function lookupCandidates(code: string): string[] {
 }
 
 export async function verifyTicketNumber(raw: string): Promise<VerifyResult> {
-  const code = extractTicketCode(raw);
+  const payload = extractTicketPayload(raw);
+  const code = payload.ticketNumber;
   if (!code) return { ok: false, reason: "not-found" };
 
   try {
-    let bookingDoc: Awaited<ReturnType<typeof findByTicketNumber>>["docs"][number] | null =
-      null;
+    let bookingDoc:
+      | Awaited<ReturnType<typeof findByTicketNumber>>["docs"][number]
+      | null = null;
 
-    for (const candidate of lookupCandidates(code)) {
+    const candidates = Array.from(
+      new Set([
+        ...(payload.bookingId ? [payload.bookingId] : []),
+        ...lookupCandidates(code),
+      ]),
+    );
+
+    for (const candidate of candidates) {
       const snapshot = await findByTicketNumber("bookings", candidate);
       if (!snapshot.empty) {
         bookingDoc = snapshot.docs[0];
         break;
+      }
+      try {
+        const directSnap = await getDoc(doc(firestore, "bookings", candidate));
+        if (directSnap.exists()) {
+          bookingDoc = directSnap as unknown as typeof bookingDoc;
+          break;
+        }
+      } catch {
+        /* ignore invalid doc ID */
       }
     }
 
@@ -206,21 +259,146 @@ export async function verifyTicketNumber(raw: string): Promise<VerifyResult> {
       return { ok: false, reason: "cancelled" };
     }
 
-    const ticketNumber = str(data, "ticketNumber") || code;
-    const entries = await findByTicketNumber("ticketEntries", ticketNumber);
-    if (!entries.empty) return { ok: false, reason: "already-used" };
+    const baseTicketNumber =
+      str(data, "ticketNumber") || payload.bookingId || code;
+    const seatsArray = Array.isArray(data.seats) ? (data.seats as string[]) : [];
+    const totalSeats =
+      seatsArray.length ||
+      num(data, "quantity") ||
+      num(data, "seatCount") ||
+      payload.seatCount ||
+      1;
+
+    // Determine seat index and specific ticket code
+    let seatIndex: number | undefined = payload.seatIndex;
+    let specificTicketNumber = code;
+
+    const seatMatch = code.match(/-([0-9]+)$/);
+    if (
+      seatMatch &&
+      Number(seatMatch[1]) > 0 &&
+      Number(seatMatch[1]) <= totalSeats
+    ) {
+      if (!seatIndex) seatIndex = Number(seatMatch[1]);
+    } else if (totalSeats > 1 && !code.includes("-", baseTicketNumber.length)) {
+      // If scanned code was just the parent booking e.g. "NJ26-00001", resolve to first unused seat
+      const usedTickets = (
+        Array.isArray(data.usedTickets) ? data.usedTickets : []
+      ).map((s) => String(s).trim().toUpperCase());
+      const usedSeats = (
+        Array.isArray(data.usedSeats) ? data.usedSeats : []
+      ).map((s) => String(s).trim().toUpperCase());
+
+      let foundUnusedIndex = -1;
+      for (let i = 0; i < totalSeats; i++) {
+        const candTicket = `${baseTicketNumber}-${i + 1}`.toUpperCase();
+        const candSeat = (seatsArray[i] || "").toUpperCase();
+        if (
+          !usedTickets.includes(candTicket) &&
+          (!candSeat || !usedSeats.includes(candSeat))
+        ) {
+          foundUnusedIndex = i + 1;
+          break;
+        }
+      }
+      if (foundUnusedIndex > 0) {
+        seatIndex = foundUnusedIndex;
+        specificTicketNumber = `${baseTicketNumber}-${seatIndex}`;
+      } else {
+        return { ok: false, reason: "already-used" };
+      }
+    }
+
+    let seatLabel = payload.seat || "";
+    if (!seatLabel && seatIndex && seatsArray[seatIndex - 1]) {
+      seatLabel = String(seatsArray[seatIndex - 1]);
+    } else if (!seatLabel && str(data, "seatNumber")) {
+      seatLabel = str(data, "seatNumber");
+    }
+
+    // Check whether this specific ticket or seat is already used
+    const usedTickets = (
+      Array.isArray(data.usedTickets) ? data.usedTickets : []
+    ).map((s) => String(s).trim().toUpperCase());
+    const usedSeats = (
+      Array.isArray(data.usedSeats) ? data.usedSeats : []
+    ).map((s) => String(s).trim().toUpperCase());
+    const usedCount = num(data, "usedCount");
+
+    if (usedTickets.includes(specificTicketNumber.toUpperCase())) {
+      return { ok: false, reason: "already-used" };
+    }
+
+    if (seatLabel && usedSeats.includes(seatLabel.toUpperCase())) {
+      return { ok: false, reason: "already-used" };
+    }
+
+    // Check ticketEntries collection for this specific ticket
+    const specificEntries = await findByTicketNumber(
+      "ticketEntries",
+      specificTicketNumber,
+    );
+    const hasActiveEntry = specificEntries.docs.some((d) => {
+      const eData = d.data();
+      const eStatus = str(eData, "status").toLowerCase();
+      const eResult = str(eData, "scanResult").toLowerCase();
+      return (
+        !["cancelled", "rejected", "failed"].includes(eStatus) &&
+        eResult !== "rejected"
+      );
+    });
+    if (hasActiveEntry) {
+      return { ok: false, reason: "already-used" };
+    }
+
+    if (totalSeats <= 1) {
+      const baseEntries = await findByTicketNumber(
+        "ticketEntries",
+        baseTicketNumber,
+      );
+      const hasBaseEntry = baseEntries.docs.some((d) => {
+        const eData = d.data();
+        const eStatus = str(eData, "status").toLowerCase();
+        const eResult = str(eData, "scanResult").toLowerCase();
+        return (
+          !["cancelled", "rejected", "failed"].includes(eStatus) &&
+          eResult !== "rejected"
+        );
+      });
+      if (hasBaseEntry || status === "used" || usedCount >= 1) {
+        return { ok: false, reason: "already-used" };
+      }
+    } else {
+      const isAllUsed =
+        (usedTickets.length >= totalSeats && totalSeats > 0) ||
+        (usedSeats.length >= totalSeats && totalSeats > 0) ||
+        (usedCount >= totalSeats && totalSeats > 0);
+      if (isAllUsed) {
+        return { ok: false, reason: "already-used" };
+      }
+    }
+
+    const totalAmount = num(data, "amount");
+    const unitPrice =
+      num(data, "unitPrice") ||
+      (totalSeats > 0 ? Math.round(totalAmount / totalSeats) : totalAmount);
 
     return {
       ok: true,
       ticket: {
         bookingId: bookingDoc.id,
-        ticketNumber,
+        ticketNumber: specificTicketNumber,
+        baseTicketNumber,
+        seat: seatLabel || undefined,
+        seatIndex,
+        totalSeats,
         eventId: str(data, "eventId"),
         eventName: str(data, "eventName"),
         ticketTypeName: str(data, "ticketTypeName") || "General",
-        quantity: num(data, "quantity") || num(data, "seatCount") || 1,
-        amount: num(data, "amount"),
+        quantity: 1, // each scanned seat is 1 entry
+        amount: unitPrice,
         block: str(data, "block"),
+        customerName: str(data, "customerName") || str(data, "name"),
       },
     };
   } catch (error) {
@@ -238,10 +416,13 @@ export async function recordEntry(
 
   await addDoc(collection(firestore, "ticketEntries"), {
     ticketNumber: ticket.ticketNumber,
+    baseTicketNumber: ticket.baseTicketNumber || ticket.ticketNumber,
+    seat: ticket.seat || "",
+    seatIndex: ticket.seatIndex ?? null,
     eventId: ticket.eventId,
     eventName: ticket.eventName,
     ticketTypeName: ticket.ticketTypeName,
-    quantity: ticket.quantity,
+    quantity: 1,
     amount: ticket.amount,
     block: ticket.block,
     bookingId: ticket.bookingId,
@@ -256,10 +437,51 @@ export async function recordEntry(
 
   if (ticket.bookingId) {
     try {
-      await updateDoc(doc(firestore, "bookings", ticket.bookingId), {
-        status: "Used",
-        usedAt: now.toISOString(),
-      });
+      const bookingRef = doc(firestore, "bookings", ticket.bookingId);
+      const bookingSnap = await getDoc(bookingRef);
+      if (bookingSnap.exists()) {
+        const bData = bookingSnap.data() as Record<string, unknown>;
+        const existingUsedTickets = (
+          Array.isArray(bData.usedTickets) ? bData.usedTickets : []
+        ).map((s) => String(s).trim());
+        const existingUsedSeats = (
+          Array.isArray(bData.usedSeats) ? bData.usedSeats : []
+        ).map((s) => String(s).trim());
+
+        const nextUsedTickets = Array.from(
+          new Set([...existingUsedTickets, ticket.ticketNumber]),
+        );
+        const nextUsedSeats = ticket.seat
+          ? Array.from(new Set([...existingUsedSeats, ticket.seat]))
+          : existingUsedSeats;
+
+        const seatsArray = Array.isArray(bData.seats) ? bData.seats : [];
+        const totalSeats =
+          seatsArray.length ||
+          num(bData, "quantity") ||
+          num(bData, "seatCount") ||
+          ticket.totalSeats ||
+          1;
+
+        const isFullyUsed = nextUsedTickets.length >= totalSeats;
+
+        const updatePayload: Record<string, unknown> = {
+          usedTickets: nextUsedTickets,
+          usedSeats: nextUsedSeats,
+          usedCount: nextUsedTickets.length,
+          lastScannedAt: now.toISOString(),
+        };
+
+        if (isFullyUsed) {
+          updatePayload.status = "Used";
+          updatePayload.usedAt = now.toISOString();
+        } else {
+          // If not all tickets are checked in, booking remains active (Confirmed)
+          updatePayload.status = "Confirmed";
+        }
+
+        await updateDoc(bookingRef, updatePayload);
+      }
     } catch (error) {
       console.error("booking status update skipped:", error);
     }
