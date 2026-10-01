@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   CircleAlert,
@@ -45,17 +45,47 @@ export function ManualEntryModal({
   onClose,
   scannerId,
   gate,
+  initialCode,
 }: {
   open: boolean;
   onClose: () => void;
   scannerId: string;
   gate: string;
+  initialCode?: string | null;
 }) {
   const [stage, setStage] = useState<Stage>("input");
   const [code, setCode] = useState("");
   const [ticket, setTicket] = useState<VerifiedTicket | null>(null);
   const [busy, setBusy] = useState(false);
   const { events } = useEvents();
+
+  useEffect(() => {
+    if (!open || !initialCode) return;
+
+    let active = true;
+    setStage("input");
+    setCode(initialCode);
+    setTicket(null);
+    setBusy(true);
+
+    void verifyTicketNumber(initialCode)
+      .then((result) => {
+        if (!active) return;
+        if (result.ok) {
+          setTicket(result.ticket);
+          setStage("verified");
+        } else {
+          setStage(result.reason);
+        }
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialCode, open]);
 
   if (!open) return null;
 

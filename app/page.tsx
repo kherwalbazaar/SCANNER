@@ -16,6 +16,7 @@ import { AppHeader, ProfileAvatar } from "@/components/app-header";
 import { BottomNav } from "@/components/bottom-nav";
 import { AppShell } from "@/components/app-shell";
 import { ManualEntryModal } from "@/components/manual-entry-modal";
+import { QrScannerModal } from "@/components/qr-scanner-modal";
 import { cn } from "@/lib/utils";
 import { remainingCount, useEvents } from "@/lib/events";
 import {
@@ -30,6 +31,8 @@ export default function HomePage() {
   const allowed = isScanningAllowed(member);
   const gate = gateLabel(member);
   const [manualOpen, setManualOpen] = useState(false);
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [scannedCode, setScannedCode] = useState<string | null>(null);
 
   const [now, setNow] = useState<Date | null>(null);
 
@@ -185,6 +188,8 @@ export default function HomePage() {
             type="button"
             disabled={!allowed}
             aria-disabled={!allowed}
+            aria-label="Scan ticket QR code"
+            onClick={() => setQrScannerOpen(true)}
             className={`group flex flex-col items-center gap-6 outline-none transition-transform active:scale-95 ${
               allowed ? "cursor-pointer" : "cursor-not-allowed"
             }`}
@@ -243,7 +248,10 @@ export default function HomePage() {
             type="button"
             disabled={!allowed}
             aria-disabled={!allowed}
-            onClick={() => setManualOpen(true)}
+            onClick={() => {
+              setScannedCode(null);
+              setManualOpen(true);
+            }}
             className={`mt-5 flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold transition-colors ${
               allowed
                 ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
@@ -258,10 +266,30 @@ export default function HomePage() {
 
       <ManualEntryModal
         open={manualOpen}
-        onClose={() => setManualOpen(false)}
+        onClose={() => {
+          setManualOpen(false);
+          setScannedCode(null);
+        }}
+        initialCode={scannedCode}
         scannerId={member?.scannerId || ""}
         gate={gate}
       />
+
+      {qrScannerOpen && (
+        <QrScannerModal
+          onClose={() => setQrScannerOpen(false)}
+          onDetected={(code) => {
+            setScannedCode(code);
+            setQrScannerOpen(false);
+            setManualOpen(true);
+          }}
+          onManualEntry={() => {
+            setScannedCode(null);
+            setQrScannerOpen(false);
+            setManualOpen(true);
+          }}
+        />
+      )}
 
       <BottomNav active="home" />
     </AppShell>
