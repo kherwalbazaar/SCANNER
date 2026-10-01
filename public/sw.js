@@ -1,6 +1,6 @@
 /* SCANNER — minimal service worker (offline shell + static asset caching). */
 
-const VERSION = "scanner-v1";
+const VERSION = "scanner-v2";
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 const OFFLINE_URL = "/";
@@ -35,6 +35,12 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  const isNextAsset = url.pathname.startsWith("/_next/");
+  const isLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(
+    self.location.hostname,
+  );
+  if (isLocalhost && isNextAsset) return;
 
   // Navigations: network first, fall back to the cached shell.
   if (request.mode === "navigate") {

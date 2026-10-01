@@ -1,13 +1,10 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useState } from "react";
 import {
-  Calendar,
-  ChevronDown,
   CircleAlert,
   CircleCheck,
   CircleX,
-  Clock,
   MapPin,
   QrCode,
   ScanLine,
@@ -35,7 +32,6 @@ type ScanRecord = {
   gate: string;
   status: Status;
   time: string;
-  day: string;
 };
 
 function toRecord(
@@ -59,15 +55,7 @@ function toRecord(
     gate: entry.gate,
     status,
     time: entry.time,
-    day: entry.scannedAt?.slice(0, 10) || entry.date,
   };
-}
-
-function todayKey() {
-  const now = new Date();
-  const day = String(now.getDate()).padStart(2, "0");
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 const TABS: { key: Status | "all"; label: string }[] = [
@@ -138,28 +126,15 @@ export default function HistoryPage() {
   const { entries, loading } = useTicketEntries();
   const { events } = useEvents();
   const [query, setQuery] = useState("");
-  const [date, setDate] = useState(todayKey());
 
   const eventNames = useMemo(
     () => new Map(events.map((event) => [event.id, event.storyName || event.title])),
     [events],
   );
 
-  const activeTitle =
-    events.find((event) => event.status === "live")?.storyName ??
-    events.find((event) => event.status === "live")?.title ??
-    events.find((event) => event.status === "upcoming")?.storyName ??
-    events.find((event) => event.status === "upcoming")?.title ??
-    "Scan History";
-
   const records = useMemo(
     () => entries.map((entry) => toRecord(entry, eventNames)),
     [entries, eventNames],
-  );
-
-  const dayRecords = useMemo(
-    () => records.filter((item) => item.day === date),
-    [records, date],
   );
 
   const totals = useMemo(() => {
@@ -176,30 +151,20 @@ export default function HistoryPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return records.filter((item) => {
-      const matchesDay = item.day === date;
       const matchesTab = tab === "all" || item.status === tab;
       const matchesQuery =
         q.length === 0 ||
         item.id.toLowerCase().includes(q) ||
         item.eventName.toLowerCase().includes(q) ||
         item.ticketType.toLowerCase().includes(q);
-      return matchesDay && matchesTab && matchesQuery;
+      return matchesTab && matchesQuery;
     });
-  }, [records, tab, query, date]);
-
-  const formattedDate = formatDate(date);
-
-  const handleDate = (event: ChangeEvent<HTMLInputElement>) => {
-    if (event.target.value) setDate(event.target.value);
-  };
+  }, [records, tab, query]);
 
   return (
     <AppShell>
-      <AppHeader>
+      <AppHeader title="History">
         <div className="text-right">
-          <p className="text-[11px] font-semibold text-indigo-100">
-            {activeTitle}
-          </p>
           <p className="flex items-center justify-end gap-1 text-[10px] font-medium text-amber-400">
             <MapPin className="h-2.5 w-2.5" /> {gateLabel(member)}
           </p>
@@ -208,36 +173,6 @@ export default function HistoryPage() {
       </AppHeader>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 pb-24">
-        {/* Title + date */}
-        <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-900">
-              <Clock className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-sm leading-tight font-bold text-slate-800">
-                Scan History
-              </h2>
-              <p className="text-[10px] text-slate-500">
-                View all scanned tickets and entry details
-              </p>
-            </div>
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-xs">
-            <Calendar className="h-3 w-3 text-slate-500" />
-            <span>{formattedDate}</span>
-            <ChevronDown className="h-2.5 w-2.5 text-slate-400" />
-            <input
-              type="date"
-              value={date}
-              onChange={handleDate}
-              aria-label="Select date"
-              className="sr-only"
-            />
-          </label>
-        </div>
-
         {/* Stats */}
         <div className="grid grid-cols-3 gap-1.5">
           {STAT_META.map(({ label, value, Icon, iconClassName, className }) => (
@@ -367,15 +302,4 @@ export default function HistoryPage() {
       <BottomNav active="history" />
     </AppShell>
   );
-}
-
-function formatDate(value: string) {
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return "Select date";
-
-  return parsed.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 }

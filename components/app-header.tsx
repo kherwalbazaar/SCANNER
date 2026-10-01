@@ -4,9 +4,10 @@ import type { ReactNode } from "react";
 type AppHeaderProps = {
   children?: ReactNode;
   className?: string;
+  title?: string;
 };
 
-export function BrandMark() {
+export function BrandMark({ title = "JATRA BAZAAR" }: { title?: string }) {
   return (
     <div className="flex items-center gap-2.5">
       <Image
@@ -18,7 +19,7 @@ export function BrandMark() {
       />
       <div>
         <h1 className="text-sm font-bold leading-tight tracking-wide">
-          JATRA BAZAAR
+          {title}
         </h1>
         <p className="text-[10px] font-semibold tracking-wider text-indigo-300">
           SCANNER
@@ -57,12 +58,12 @@ export function ProfileAvatar({
   );
 }
 
-export function AppHeader({ children, className }: AppHeaderProps) {
+export function AppHeader({ children, className, title }: AppHeaderProps) {
   return (
     <header
       className={`flex shrink-0 items-center justify-between bg-indigo-950 px-4 pt-6 pb-4 text-white ${className ?? ""}`}
     >
-      <BrandMark />
+      <BrandMark title={title} />
       <div className="flex items-center gap-2.5">{children}</div>
     </header>
   );

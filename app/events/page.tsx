@@ -43,7 +43,7 @@ export default function EventsPage() {
 
   return (
     <AppShell>
-      <AppHeader>
+      <AppHeader title="Events">
         <ProfileAvatar
           src={member?.profilePhoto}
           alt={member?.name || "Scanner"}
@@ -51,20 +51,6 @@ export default function EventsPage() {
       </AppHeader>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 pb-24">
-        <div className="flex items-center gap-2.5 pt-1">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-900">
-            <Ticket className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="text-sm leading-tight font-bold text-slate-800">
-              Events
-            </h2>
-            <p className="text-[10px] text-slate-500">
-              Online ticket selling events and booking status
-            </p>
-          </div>
-        </div>
-
         <div className="flex gap-1.5 overflow-x-auto pb-1">
           {categories.map((item) => (
             <button
