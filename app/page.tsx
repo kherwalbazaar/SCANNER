@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   Calendar,
   CircleAlert,
   Clock,
+  Hourglass,
   Keyboard,
+  LogIn,
   ScanLine,
   Ticket,
   Users,
@@ -18,7 +22,7 @@ import { AppShell } from "@/components/app-shell";
 import { ManualEntryModal } from "@/components/manual-entry-modal";
 import { QrScannerModal } from "@/components/qr-scanner-modal";
 import { cn } from "@/lib/utils";
-import { remainingCount, useEvents } from "@/lib/events";
+import { remainingCount, useEvents, isUpcomingEvent } from "@/lib/events";
 import {
   gateLabel,
   isScanningAllowed,
@@ -26,9 +30,28 @@ import {
 } from "@/lib/scanner-member";
 
 export default function HomePage() {
+  const router = useRouter();
   const { member } = useScannerMember();
   const { events } = useEvents();
   const allowed = isScanningAllowed(member);
+  const waiting = !!member && !allowed;
+  const blockedNotice =
+    member && !allowed
+      ? member.accountStatus?.toLowerCase() === "deactivated"
+        ? {
+            title: "Account Deactivated",
+            body: "Your scanner account is approved but currently deactivated. Please contact the administrator to restore access.",
+          }
+        : member.approvalStatus?.toLowerCase() === "rejected"
+          ? {
+              title: "Account Rejected",
+              body: "Your scanner account was rejected by the administrator. Please contact the administrator for help.",
+            }
+          : {
+              title: "Waiting for Approval",
+              body: "You will be able to scan audience tickets after an administrator approves your account.",
+            }
+      : null;
   const gate = gateLabel(member);
   const [manualOpen, setManualOpen] = useState(false);
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
@@ -42,13 +65,17 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, []);
 
+  const upcomingEvents = useMemo(
+    () => events.filter(isUpcomingEvent),
+    [events],
+  );
+
   const activeEvent = useMemo(
     () =>
-      events.find((event) => event.status === "live") ??
-      events.find((event) => event.status === "upcoming") ??
-      events[0] ??
+      upcomingEvents.find((event) => event.status === "live") ??
+      upcomingEvents[0] ??
       null,
-    [events],
+    [upcomingEvents],
   );
 
   const timeText = now ? now.toLocaleTimeString("en-IN", {
@@ -58,9 +85,7 @@ export default function HomePage() {
     hour12: true,
   }) : "";
 
-  const storyText = activeEvent?.storyName;
-
-  const totals = events.reduce(
+  const totals = upcomingEvents.reduce(
     (acc, event) => ({
       booked: acc.booked + event.booked,
       scanned: acc.scanned + event.scanned,
@@ -103,7 +128,9 @@ export default function HomePage() {
           <Bell className="h-5 w-5 text-white" />
           <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-red-500" />
         </span>
-        <ProfileAvatar src={member?.profilePhoto} alt={member?.name || "Scanner"} />
+        <Link href="/profile" className="outline-none">
+          <ProfileAvatar src={member?.profilePhoto} alt={member?.name || "Scanner"} />
+        </Link>
       </AppHeader>
 
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -140,7 +167,7 @@ export default function HomePage() {
 
           <div className="mt-2.5 rounded-2xl border border-slate-200/80 bg-white px-4 py-3 text-center shadow-[0_-10px_26px_-16px_rgba(15,23,42,0.55)]">
             <p className="text-sm font-extrabold text-indigo-900 leading-tight">
-              {activeEvent?.storyName || "No event published"}
+              {activeEvent?.storyName || "No upcoming event"}
             </p>
             <p className="mt-1 text-[11px] font-semibold text-slate-700 leading-tight">
               {activeEvent?.title || "—"}
@@ -165,102 +192,126 @@ export default function HomePage() {
 
         {/* Status + stats (member details live on the Profile tab) */}
         <div className="max-h-[42%] shrink-0 space-y-3 overflow-y-auto px-4 pt-3 pb-1">
-          {!allowed && (
-            <div className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-3.5">
-              <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
-              <div>
-                <h4 className="text-xs font-bold text-blue-900">
-                  Waiting for Approval
-                </h4>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
-                  You will be able to scan audience tickets after an
-                  administrator approves your account and assigns a gate.
-                </p>
+          {!member ? (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-indigo-200 bg-indigo-50/90 p-3.5 shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-indigo-700" />
+                <div>
+                  <h4 className="text-xs font-bold text-indigo-950">
+                    Scanner Sign-In Required
+                  </h4>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
+                    Sign in with your approved Scanner ID to start admitting tickets.
+                  </p>
+                </div>
               </div>
+              <Link
+                href="/login"
+                className="shrink-0 flex items-center gap-1 rounded-xl bg-indigo-950 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-indigo-900 transition-colors"
+              >
+                <LogIn className="h-3 w-3" />
+                Sign In
+              </Link>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Full-screen centred scan action */}
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-24">
-          {!manualOpen && (
-          <button
-            type="button"
-            disabled={!allowed}
-            aria-disabled={!allowed}
-            aria-label="Scan ticket QR code"
-            onClick={() => setQrScannerOpen(true)}
-            className={`group flex flex-col items-center gap-6 outline-none transition-transform active:scale-95 ${
-              allowed ? "cursor-pointer" : "cursor-not-allowed"
-            }`}
-          >
-            <span
-              className={`relative flex h-56 w-56 items-center justify-center overflow-hidden rounded-[44px] shadow-xl transition-colors ${
-                allowed
-                  ? "bg-white text-slate-900"
-                  : "bg-slate-100 text-slate-400"
-              }`}
-            >
-              {(
-                [
-                  "top-5 left-5 rounded-tl-2xl border-t-[7px] border-l-[7px]",
-                  "top-5 right-5 rounded-tr-2xl border-t-[7px] border-r-[7px]",
-                  "bottom-5 left-5 rounded-bl-2xl border-b-[7px] border-l-[7px]",
-                  "bottom-5 right-5 rounded-br-2xl border-b-[7px] border-r-[7px]",
-                ] as const
-              ).map((position) => (
+          {waiting ? (
+            <div className="flex w-full max-w-xs flex-col items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-6 text-center shadow-xs">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                <Hourglass className="h-6 w-6" />
+              </span>
+              <h4 className="text-sm font-bold text-amber-900">
+                {blockedNotice?.title}
+              </h4>
+              <p className="text-[11px] leading-relaxed text-slate-600">
+                {blockedNotice?.body}
+              </p>
+            </div>
+          ) : (
+            <>
+              {!manualOpen && (
+              <button
+                type="button"
+                aria-label="Scan ticket QR code"
+                onClick={() => {
+                  if (!member) {
+                    router.push("/login");
+                  } else if (allowed) {
+                    setQrScannerOpen(true);
+                  }
+                }}
+                className="group flex cursor-pointer flex-col items-center gap-6 outline-none transition-transform active:scale-95"
+              >
                 <span
-                  key={position}
-                  aria-hidden="true"
-                  className={`absolute h-11 w-11 ${position} ${
+                  className={`relative flex h-56 w-56 items-center justify-center overflow-hidden rounded-[44px] shadow-xl transition-colors ${
                     allowed
-                      ? "animate-bracket-pulse border-indigo-500"
-                      : "border-slate-300"
+                      ? "bg-white text-slate-900"
+                      : "bg-slate-100 text-slate-400"
                   }`}
-                />
-              ))}
+                >
+                  {(
+                    [
+                      "top-5 left-5 rounded-tl-2xl border-t-[7px] border-l-[7px]",
+                      "top-5 right-5 rounded-tr-2xl border-t-[7px] border-r-[7px]",
+                      "bottom-5 left-5 rounded-bl-2xl border-b-[7px] border-l-[7px]",
+                      "bottom-5 right-5 rounded-br-2xl border-b-[7px] border-r-[7px]",
+                    ] as const
+                  ).map((position) => (
+                    <span
+                      key={position}
+                      aria-hidden="true"
+                      className={`absolute h-11 w-11 ${position} ${
+                        allowed
+                          ? "animate-bracket-pulse border-indigo-500"
+                          : "border-slate-300"
+                      }`}
+                    />
+                  ))}
 
-              <span
-                aria-hidden="true"
-                className={`absolute h-40 w-40 rounded-full blur-2xl ${
-                  allowed ? "animate-qr-glow bg-indigo-400/30" : "bg-transparent"
-                }`}
-              />
+                  <span
+                    aria-hidden="true"
+                    className={`absolute h-40 w-40 rounded-full blur-2xl ${
+                      allowed ? "animate-qr-glow bg-indigo-400/30" : "bg-transparent"
+                    }`}
+                  />
 
-              <ScanLine
-                className={`relative h-36 w-36 ${allowed ? "text-slate-900" : "text-slate-400"}`}
-                strokeWidth={1.75}
-              />
+                  <ScanLine
+                    className={`relative h-36 w-36 ${allowed ? "text-slate-900" : "text-slate-400"}`}
+                    strokeWidth={1.75}
+                  />
 
-              <span
-                aria-hidden="true"
-                className={`absolute inset-x-8 top-1/2 h-0.5 ${
-                  allowed
-                    ? "animate-scan-sweep bg-indigo-500 shadow-[0_0_10px_2px_rgba(79,70,229,0.65)]"
-                    : "bg-slate-400"
-                }`}
-              />
-            </span>
-          </button>
+                  <span
+                    aria-hidden="true"
+                    className={`absolute inset-x-8 top-1/2 h-0.5 ${
+                      allowed
+                        ? "animate-scan-sweep bg-indigo-500 shadow-[0_0_10px_2px_rgba(79,70,229,0.65)]"
+                        : "bg-slate-400"
+                    }`}
+                  />
+                </span>
+              </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!member) {
+                    router.push("/login");
+                  } else if (allowed) {
+                    setScannedCode(null);
+                    setManualOpen(true);
+                  }
+                }}
+                className="mt-5 flex cursor-pointer items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100"
+              >
+                <Keyboard className="h-3.5 w-3.5" />
+                {!member ? "Sign In to Enter Code" : "Enter Code Manually"}
+              </button>
+            </>
           )}
-
-          <button
-            type="button"
-            disabled={!allowed}
-            aria-disabled={!allowed}
-            onClick={() => {
-              setScannedCode(null);
-              setManualOpen(true);
-            }}
-            className={`mt-5 flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold transition-colors ${
-              allowed
-                ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
-                : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-            }`}
-          >
-            <Keyboard className="h-3.5 w-3.5" />
-            Enter Code Manually
-          </button>
         </div>
       </div>
 
@@ -272,6 +323,8 @@ export default function HomePage() {
         }}
         initialCode={scannedCode}
         scannerId={member?.scannerId || ""}
+        scannerName={member?.name || "Scanner"}
+        memberId={member?.id}
         gate={gate}
       />
 

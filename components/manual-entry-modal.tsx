@@ -45,12 +45,16 @@ export function ManualEntryModal({
   open,
   onClose,
   scannerId,
+  scannerName,
+  memberId,
   gate,
   initialCode,
 }: {
   open: boolean;
   onClose: () => void;
   scannerId: string;
+  scannerName?: string;
+  memberId?: string;
   gate: string;
   initialCode?: string | null;
 }) {
@@ -119,11 +123,24 @@ export function ManualEntryModal({
     if (busy || !ticket) return;
     setBusy(true);
     try {
-      await recordEntry(ticket, scannerId, gate);
+      await recordEntry(
+        ticket,
+        scannerId,
+        gate,
+        scannerName || "Scanner",
+        memberId || "",
+      );
       setStage("saved");
     } catch (error) {
       console.error("recordEntry error:", error);
-      setStage("error");
+      const message = error instanceof Error ? error.message : "";
+      if (message === "ALREADY_USED") {
+        setStage("already-used");
+      } else if (message === "CANCELLED") {
+        setStage("cancelled");
+      } else {
+        setStage("error");
+      }
     } finally {
       setBusy(false);
     }

@@ -38,19 +38,27 @@ function toRecord(
   entry: TicketEntry,
   eventNames: Map<string, string>,
 ): ScanRecord {
-  const value = entry.status.toLowerCase();
-  const status: Status = ["invalid", "rejected", "failed"].includes(value)
-    ? "invalid"
-    : ["used", "duplicate"].includes(value)
+  const value = String(entry.status || "").toLowerCase();
+  const result = String(entry.scanResult || "").toUpperCase();
+  const entryStatus = String(entry.entryStatus || "").toLowerCase();
+
+  const status: Status =
+    result === "ALREADY_USED" ||
+    ["used", "duplicate", "already_used"].includes(value)
       ? "used"
-      : "valid";
+      : entryStatus === "rejected" ||
+          (result !== "" && result !== "SUCCESS") ||
+          ["invalid", "rejected", "failed", "cancelled", "wrong_event", "unpaid", "scanner_denied"].includes(value)
+        ? "invalid"
+        : "valid";
 
   return {
     id: entry.ticketNumber || "—",
     ticketType: entry.ticketTypeName || "General",
     eventName:
       (entry.eventId ? eventNames.get(entry.eventId) : undefined) ||
-      entry.eventName,
+      entry.eventName ||
+      "—",
     quantity: entry.quantity,
     gate: entry.gate,
     status,
@@ -255,7 +263,7 @@ export default function HistoryPage() {
 
               return (
                 <article
-                  key={item.id}
+                  key={`${item.id}-${item.time}`}
                   className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-3 shadow-2xs"
                 >
                   <div className="flex items-start gap-3">

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Calendar,
@@ -13,6 +14,8 @@ import {
   Phone,
   QrCode,
   UserPlus,
+  LogIn,
+  KeyRound,
 } from "lucide-react";
 
 import { ProfileAvatar } from "@/components/app-header";
@@ -48,7 +51,13 @@ const ACTIONS: {
 ];
 
 export default function ProfilePage() {
-  const { member, loading } = useScannerMember();
+  const router = useRouter();
+  const { member, loading, logout } = useScannerMember();
+
+  const handleSignOut = () => {
+    logout();
+    router.push("/login");
+  };
 
   const scannerId = member?.scannerId || "—";
   const gate = gateLabel(member);
@@ -73,70 +82,96 @@ export default function ProfilePage() {
         />
         <div className="text-center">
           <h1 className="text-base font-bold leading-tight">
-            {loading && !member ? "Loading…" : member?.name || "Scanner"}
+            {loading && !member ? "Loading…" : member?.name || "Not Signed In"}
           </h1>
           <p className="text-[11px] font-semibold tracking-wider text-indigo-300">
-            {scannerId} &bull; {gate}
+            {member ? `${scannerId} • ${gate}` : "Gate Scanner Staff"}
           </p>
         </div>
-        <span
-          className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
-            allowed
-              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
-              : "border-amber-500/40 bg-amber-500/15 text-amber-300"
-          }`}
-        >
+        {member ? (
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              allowed ? "bg-emerald-400" : "bg-amber-400"
+            className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+              allowed
+                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                : "border-amber-500/40 bg-amber-500/15 text-amber-300"
             }`}
-          />
-          {accountLabel(member?.accountStatus)} &bull;{" "}
-          {approvalLabel(member?.approvalStatus)}
-        </span>
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                allowed ? "bg-emerald-400" : "bg-amber-400"
+              }`}
+            />
+            {accountLabel(member?.accountStatus)} &bull;{" "}
+            {approvalLabel(member?.approvalStatus)}
+          </span>
+        ) : (
+          <Link
+            href="/login"
+            className="flex items-center gap-1.5 rounded-full bg-indigo-800 px-3 py-1 text-xs font-semibold text-white border border-indigo-600 hover:bg-indigo-700 transition-colors"
+          >
+            <LogIn className="h-3.5 w-3.5" />
+            Sign In Now
+          </Link>
+        )}
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 pb-24">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
-          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
-            <QrCode className="h-4 w-4 text-indigo-900" />
-            <h2 className="text-sm font-bold text-slate-800">Scanner Details</h2>
-          </div>
+        {member ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
+            <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
+              <QrCode className="h-4 w-4 text-indigo-900" />
+              <h2 className="text-sm font-bold text-slate-800">Scanner Details</h2>
+            </div>
 
-          <dl className="space-y-2.5 text-xs">
-            {details.map(({ label, value, Icon }) => (
-              <div key={label} className="flex items-center justify-between">
+            <dl className="space-y-2.5 text-xs">
+              {details.map(({ label, value, Icon }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <dt className="flex items-center gap-2 font-medium text-slate-500">
+                    <Icon className="h-3.5 w-3.5 text-slate-400" />
+                    {label}
+                  </dt>
+                  <dd className="max-w-[60%] truncate text-right font-semibold text-slate-800">
+                    {loading && !member ? "…" : value}
+                  </dd>
+                </div>
+              ))}
+
+              <div className="flex items-center justify-between">
                 <dt className="flex items-center gap-2 font-medium text-slate-500">
-                  <Icon className="h-3.5 w-3.5 text-slate-400" />
-                  {label}
+                  <Lock className="h-3.5 w-3.5 text-slate-400" />
+                  Scanning Access
                 </dt>
-                <dd className="max-w-[60%] truncate text-right font-semibold text-slate-800">
-                  {loading && !member ? "…" : value}
+                <dd
+                  className={`flex items-center gap-1 font-semibold ${
+                    allowed ? "text-emerald-600" : "text-rose-600"
+                  }`}
+                >
+                  {allowed ? (
+                    <>Granted</>
+                  ) : (
+                    <>
+                      <Lock className="h-2.5 w-2.5" /> Locked (Pending Approval)
+                    </>
+                  )}
                 </dd>
               </div>
-            ))}
-
-            <div className="flex items-center justify-between">
-              <dt className="flex items-center gap-2 font-medium text-slate-500">
-                <Lock className="h-3.5 w-3.5 text-slate-400" />
-                Scanning Access
-              </dt>
-              <dd
-                className={`flex items-center gap-1 font-semibold ${
-                  allowed ? "text-emerald-600" : "text-rose-600"
-                }`}
-              >
-                {allowed ? (
-                  <>Granted</>
-                ) : (
-                  <>
-                    <Lock className="h-2.5 w-2.5" /> Locked
-                  </>
-                )}
-              </dd>
-            </div>
-          </dl>
-        </div>
+            </dl>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs text-center">
+            <p className="text-sm font-bold text-slate-800">No Active Session</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Please sign in with your Scanner ID to view assigned gate and scan permissions.
+            </p>
+            <Link
+              href="/login"
+              className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-950 px-5 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-950/20 hover:bg-indigo-900 transition-colors"
+            >
+              <LogIn className="h-4 w-4" />
+              Scanner Sign In
+            </Link>
+          </div>
+        )}
 
         <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
           <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -170,13 +205,24 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <button
-          type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 py-3 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100"
-        >
-          <LogOut className="h-4 w-4" />
-          Sign Out
-        </button>
+        {member ? (
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 py-3 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100 cursor-pointer"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out Scanner
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 py-3 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+          >
+            <LogIn className="h-4 w-4" />
+            Log In Scanner
+          </Link>
+        )}
 
         <Link
           href="/create"

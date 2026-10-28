@@ -24,10 +24,15 @@ import {
   User,
   UserPlus,
   X,
+  CheckCircle2,
+  LoaderCircle,
 } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
-import { useNextScannerId } from "@/lib/scanner-member";
+import {
+  registerScannerMember,
+  useNextScannerId,
+} from "@/lib/scanner-member";
 
 const GATES = ["Not assigned", "Gate 1", "Gate 2", "Gate 3"] as const;
 
@@ -57,7 +62,9 @@ export default function CreateScannerPage() {
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>(
     {},
   );
-  const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdScannerId, setCreatedScannerId] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -103,12 +110,29 @@ export default function CreateScannerPage() {
     }
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!validate()) return;
+    if (!validate() || isSubmitting) return;
 
-    setSubmitted(true);
-    window.setTimeout(() => router.push("/"), 1200);
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    const result = await registerScannerMember({
+      name: form.fullName,
+      mobile: form.mobile,
+      email: form.email,
+      address: form.address,
+      assignedGateId: form.gate,
+      profilePhoto: photo || "",
+    });
+
+    setIsSubmitting(false);
+
+    if (result.ok) {
+      setCreatedScannerId(result.scannerId);
+    } else {
+      setSubmitError(result.error || "Failed to create scanner account. Please try again.");
+    }
   };
 
   return (
@@ -175,16 +199,16 @@ export default function CreateScannerPage() {
             </p>
           </div>
 
-          {submitted ? (
+          {createdScannerId ? (
             <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5">
               <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
               <div>
                 <h4 className="text-xs font-bold text-emerald-800">
-                  Request Submitted
+                  Request Submitted ({createdScannerId})
                 </h4>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
                   Your scanner account has been created and is pending
-                  administrator approval. Redirecting you to the dashboard...
+                  administrator approval.
                 </p>
               </div>
             </div>
@@ -358,6 +382,16 @@ export default function CreateScannerPage() {
             </div>
           </div>
 
+          {/* Error Banner */}
+          {submitError && (
+            <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-3">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+              <p className="text-[11px] leading-relaxed text-rose-700">
+                {submitError}
+              </p>
+            </div>
+          )}
+
           {/* Info */}
           <div className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-3">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
@@ -381,14 +415,70 @@ export default function CreateScannerPage() {
           </button>
           <button
             type="submit"
-            disabled={submitted}
+            disabled={isSubmitting}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-indigo-900 px-4 py-3 text-xs font-semibold text-white shadow-md shadow-indigo-900/20 transition-colors hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <UserPlus className="h-4 w-4" />
-            <span>{submitted ? "Submitted" : "Create Account"}</span>
+            {isSubmitting ? (
+              <>
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+                <span>Submitting…</span>
+              </>
+            ) : (
+              <>
+                <UserPlus className="h-4 w-4" />
+                <span>Create Account</span>
+              </>
+            )}
           </button>
         </div>
       </form>
+
+      {/* Success Modal */}
+      {createdScannerId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+              <CheckCircle2 className="h-8 w-8" />
+            </div>
+            <h3 className="mt-4 text-base font-bold text-slate-900">
+              Scanner Account Registered!
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Your registration was synced with Supabase & Admin.
+            </p>
+
+            <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3.5">
+              <p className="text-[11px] font-semibold text-indigo-700">
+                Your Assigned Scanner ID
+              </p>
+              <p className="mt-0.5 text-xl font-extrabold tracking-wider text-indigo-950">
+                {createdScannerId}
+              </p>
+              <p className="mt-2 text-[10px] text-amber-700 bg-amber-50 rounded-lg p-2 border border-amber-200/80">
+                Status: <strong>Pending Admin Approval</strong>. The event admin
+                can now see and approve your profile in the Admin Panel.
+              </p>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => router.push(`/login?id=${createdScannerId}`)}
+                className="w-full rounded-xl bg-indigo-900 py-3 text-xs font-semibold text-white shadow-md shadow-indigo-900/20 transition-colors hover:bg-indigo-800"
+              >
+                Go to Scanner Login
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/")}
+                className="w-full rounded-xl bg-slate-100 py-2.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+              >
+                Back to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

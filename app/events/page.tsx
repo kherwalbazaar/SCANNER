@@ -14,6 +14,7 @@ import {
   STATUS_META,
   bookedCount,
   formatDate,
+  isUpcomingEvent,
   remainingCount,
   scannedCount,
   useEvents,
@@ -25,20 +26,25 @@ export default function EventsPage() {
   const { events: allEvents, loading } = useEvents();
   const [category, setCategory] = useState("All");
 
+  const upcomingEvents = useMemo(
+    () => allEvents.filter(isUpcomingEvent),
+    [allEvents],
+  );
+
   const categories = useMemo(
     () => [
       "All",
-      ...Array.from(new Set(allEvents.map((event) => event.category))),
+      ...Array.from(new Set(upcomingEvents.map((event) => event.category))),
     ],
-    [allEvents],
+    [upcomingEvents],
   );
 
   const events = useMemo(
     () =>
       category === "All"
-        ? allEvents
-        : allEvents.filter((event) => event.category === category),
-    [allEvents, category],
+        ? upcomingEvents
+        : upcomingEvents.filter((event) => event.category === category),
+    [upcomingEvents, category],
   );
 
   return (
@@ -100,12 +106,12 @@ export default function EventsPage() {
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
             <Ticket className="h-6 w-6 text-slate-300" />
             <p className="text-xs font-semibold text-slate-600">
-              {allEvents.length === 0 ? "No events published yet" : "No events in this category"}
+              {upcomingEvents.length === 0 ? "No upcoming events" : "No events in this category"}
             </p>
             <p className="text-[11px] text-slate-400">
-              {allEvents.length === 0
-                ? "Events added in the admin panel will appear here."
-                : "Try another category to see live events."}
+              {upcomingEvents.length === 0
+                ? "Upcoming events added in the admin panel will appear here."
+                : "Try another category to see upcoming events."}
             </p>
           </div>
         ) : (

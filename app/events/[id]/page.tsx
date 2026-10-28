@@ -20,6 +20,8 @@ import {
   STATUS_META,
   bookedCount,
   formatDate,
+  getEventExpiryInfo,
+  isUpcomingEvent,
   remainingCount,
   revenue,
   scannedCount,
@@ -89,6 +91,31 @@ export default function EventDetailPage() {
             className="mt-1 rounded-full bg-indigo-900 px-4 py-2 text-xs font-semibold text-white"
           >
             Back to Events
+          </Link>
+        </div>
+        <BottomNav active="events" />
+      </AppShell>
+    );
+  }
+
+  if (!isUpcomingEvent(event)) {
+    return (
+      <AppShell>
+        <PageHeader subtitle={event.storyName || event.title} />
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 pb-24 text-center">
+          <Ticket className="h-8 w-8 text-slate-300" />
+          <p className="text-sm font-semibold text-slate-600">
+            This event has ended
+          </p>
+          <p className="text-[11px] text-slate-400">
+            {getEventExpiryInfo(event).message ||
+              "Event details are no longer available."}
+          </p>
+          <Link
+            href="/events"
+            className="mt-1 rounded-full bg-indigo-900 px-4 py-2 text-xs font-semibold text-white"
+          >
+            Back to Upcoming Events
           </Link>
         </div>
         <BottomNav active="events" />
